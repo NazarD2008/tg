@@ -216,6 +216,12 @@ async def cmd_cancel(message: Message, state: FSMContext) -> None:
 # Каталог и корзина
 # -----------------------------
 
+@router.callback_query(lambda callback: callback.data == "cart")
+async def cb_cart(callback: CallbackQuery) -> None:
+    await render_cart(callback.message, callback.from_user.id)
+    await callback.answer()
+
+
 @router.callback_query(lambda callback: bool(callback.data and callback.data.startswith("catalog:")))
 async def cb_catalog(callback: CallbackQuery) -> None:
     page = int(callback.data.split(":", 1)[1])
