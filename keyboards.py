@@ -18,7 +18,7 @@ def products_keyboard(products: list[dict], page: int, total_pages: int) -> Inli
         rows.append(
             [
                 InlineKeyboardButton(
-                    text=f"{product['name']} — {product['price_stars']}⭐",
+                    text=f"{product['name']} — {product['price_uah']} ₴ / {product['price_stars']}⭐" if product.get('price_uah') else f"{product['name']} — {product['price_stars']}⭐",
                     callback_data=f"product:{product['id']}",
                 )
             ]
@@ -94,3 +94,17 @@ def add_product_confirm_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="❌ Отмена", callback_data="add_cancel")],
         ]
     )
+
+
+def payment_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💳 Перевод на карту", callback_data="pay:card")],
+        [InlineKeyboardButton(text="⭐ Telegram Stars", callback_data="pay:stars")],
+    ])
+
+
+def card_payment_admin_keyboard(order_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Подтвердить оплату", callback_data=f"card_paid:{order_id}")],
+        [InlineKeyboardButton(text="❌ Отклонить", callback_data=f"card_reject:{order_id}")],
+    ])
