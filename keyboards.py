@@ -66,7 +66,7 @@ def cart_keyboard(items: list[dict]) -> InlineKeyboardMarkup:
 def delivery_keyboard() -> InlineKeyboardMarkup:
     rows = []
     for key, method in DELIVERY_METHODS.items():
-        suffix = f" +{method['cost']}⭐" if method["cost"] else ""
+        suffix = f" +{method['cost_uah']} ₴ / {method['cost_stars']}⭐" if method["cost_uah"] or method["cost_stars"] else ""
         rows.append([InlineKeyboardButton(text=f"{method['name']}{suffix}", callback_data=f"delivery:{key}")])
     rows.append([InlineKeyboardButton(text="◀️ Назад", callback_data="cart")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
