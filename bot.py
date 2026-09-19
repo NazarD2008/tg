@@ -13,9 +13,11 @@ from aiogram.types import (
     LabeledPrice,
     Message,
     PreCheckoutQuery,
+    InlineKeyboardMarkup,
+    InlineKeyboardButton,
 )
 
-from config import ADMIN_IDS, BOT_TOKEN, CHANNEL_DEST, DELIVERY_METHODS
+from config import ADMIN_IDS, BOT_TOKEN, CHANNEL_DEST, DELIVERY_METHODS, CARD_NUMBER, CARD_HOLDER, CARD_BANK
 from database import (
     add_admin,
     add_product,
@@ -37,6 +39,8 @@ from database import (
 from keyboards import (
     add_product_confirm_keyboard,
     admin_products_keyboard,
+    payment_keyboard,
+    card_payment_admin_keyboard,
     cart_keyboard,
     delivery_keyboard,
     main_menu_keyboard,
@@ -72,8 +76,14 @@ def is_admin(user_id: int) -> bool:
     return user_id in ADMIN_IDS
 
 
-def cart_total(items: list[dict]) -> int:
+def cart_total_stars(items: list[dict]) -> int:
     return sum(item["price_stars"] * item["quantity"] for item in items)
+
+
+def cart_total_uah(items: list[dict]) -> int | None:
+    if any(item.get("price_uah") is None for item in items):
+        return None
+    return sum(item["price_uah"] * item["quantity"] for item in items)
 
 
 def order_text(order: dict) -> str:
@@ -132,11 +142,12 @@ async def render_cart(message: Message, user_id: int) -> None:
     if not items:
         await message.answer("🛒 Корзина пуста.", reply_markup=main_menu_keyboard())
         return
-    total = cart_total(items)
+    total_stars = cart_total_stars(items)
+    total_uah = cart_total_uah(items)
     lines = ["🛒 Корзина:", ""]
     for item in items:
         lines.append(f"• {item['name']} ×{item['quantity']} — {item['price_stars'] * item['quantity']} ⭐")
-    lines.extend(["", f"💰 Итого: {total} ⭐"])
+    lines.extend(["", f"💰 Итого: {total_uah} ₴ / {total_stars} ⭐" if total_uah is not None else f"💰 Итого: {total_stars} ⭐"])
     await message.answer("\n".join(lines), reply_markup=cart_keyboard(items))
 
 
@@ -335,35 +346,89 @@ async def checkout_comment(message: Message, state: FSMContext) -> None:
 async def cb_delivery(callback: CallbackQuery, state: FSMContext) -> None:
     delivery = callback.data.split(":", 1)[1]
     if delivery not in DELIVERY_METHODS:
-        await callback.answer("Неизвестный способ доставки", show_alert=True)
-        return
+        await callback.answer("Неизвестный способ доставки", show_alert=True); return
     items = await get_cart(callback.from_user.id)
     if not items:
-        await callback.answer("Корзина пуста", show_alert=True)
-        return
+        await callback.answer("Корзина пуста", show_alert=True); return
     data = await state.get_data()
-    subtotal = cart_total(items)
-    delivery_cost = DELIVERY_METHODS[delivery]["cost"]
-    total = subtotal + delivery_cost
-    order_id = await create_order(
-        user_id=callback.from_user.id,
-        items_json=json.dumps(items, ensure_ascii=False),
-        total_stars=total,
-        delivery=delivery,
-        delivery_cost=delivery_cost,
-        customer_name=data.get("name", ""),
-        customer_phone=data.get("phone", ""),
-        customer_address=data.get("address", ""),
-        customer_comment=data.get("comment", ""),
-    )
-    await state.update(order_id=order_id)
-    await callback.message.answer(
-        f"Заказ #{order_id} создан.\n"
-        f"Сумма к оплате: {total} ⭐\n\n"
-        "Нажмите «Заплатить» в открывшемся окне оплаты."
-    )
-    await send_invoice(callback.message, order_id, total)
+    total_stars = cart_total_stars(items) + DELIVERY_METHODS[delivery]["cost_stars"]
+    total_uah = cart_total_uah(items)
+    if total_uah is not None:
+        total_uah += DELIVERY_METHODS[delivery]["cost_uah"]
+    order_id = await create_order(user_id=callback.from_user.id, items_json=json.dumps(items, ensure_ascii=False), total_stars=total_stars, total_uah=total_uah, payment_method=None, delivery=delivery, delivery_cost=DELIVERY_METHODS[delivery]["cost_uah"], customer_name=data.get("name",""), customer_phone=data.get("phone",""), customer_address=data.get("address",""), customer_comment=data.get("comment",""))
+    await state.update_data(order_id=order_id)
+    payment_text = f"💰 К оплате: {total_uah} ₴ / {total_stars} ⭐" if total_uah is not None else f"💰 К оплате: {total_stars} ⭐\n⚠️ Для оплаты картой у товара не задана цена в гривнах."
+    await callback.message.answer(f"Заказ #{order_id} создан.\n\n{payment_text}\n\nВыберите способ оплаты:", reply_markup=payment_keyboard() if total_uah is not None else None)
+    if total_uah is None: await send_invoice(callback.message, order_id, total_stars)
     await callback.answer()
+
+
+async def get_order_id_from_state_or_latest(user_id: int) -> int | None:
+    orders = await get_orders(limit=20)
+    for order in orders:
+        if order["user_id"] == user_id and order["status"] in {"pending", "payment_rejected"}: return order["id"]
+    return None
+
+
+@router.callback_query(lambda callback: callback.data == "pay:stars")
+async def cb_pay_stars(callback: CallbackQuery) -> None:
+    order_id = await get_order_id_from_state_or_latest(callback.from_user.id)
+    order = await get_order(order_id) if order_id else None
+    if not order: await callback.answer("Заказ не найден", show_alert=True); return
+    await update_order_payment_method(order_id, "stars")
+    await send_invoice(callback.message, order_id, order["total_stars"])
+    await callback.answer()
+
+
+@router.callback_query(lambda callback: callback.data == "pay:card")
+async def cb_pay_card(callback: CallbackQuery) -> None:
+    order_id = await get_order_id_from_state_or_latest(callback.from_user.id)
+    order = await get_order(order_id) if order_id else None
+    if not order or not order.get("total_uah"):
+        await callback.answer("Оплата картой недоступна для этого заказа", show_alert=True); return
+    if not CARD_NUMBER:
+        await callback.answer("Номер карты ещё не настроен администратором", show_alert=True); return
+    await update_order_payment_method(order_id, "card")
+    text = f"💳 Оплата переводом\n\nСумма: {order['total_uah']} ₴\nКарта: {CARD_NUMBER}"
+    if CARD_HOLDER: text += f"\nПолучатель: {CARD_HOLDER}"
+    if CARD_BANK: text += f"\nБанк: {CARD_BANK}"
+    text += "\n\nПосле перевода нажмите «Я оплатил»."
+    markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="✅ Я оплатил", callback_data=f"card_claim:{order_id}")]])
+    await callback.message.answer(text, reply_markup=markup); await callback.answer()
+
+
+@router.callback_query(lambda callback: bool(callback.data and callback.data.startswith("card_claim:")))
+async def cb_card_claim(callback: CallbackQuery) -> None:
+    order_id=int(callback.data.split(":",1)[1]); order=await get_order(order_id)
+    if not order or order["user_id"] != callback.from_user.id:
+        await callback.answer("Заказ не найден", show_alert=True); return
+    await update_order_status(order_id, "awaiting_card_confirmation")
+    for admin_id in ADMIN_IDS:
+        try: await bot.send_message(admin_id, f"🔔 Проверка оплаты\n\nЗаказ #{order_id}\nСумма: {order['total_uah']} ₴\nПользователь: {callback.from_user.full_name} (@{callback.from_user.username or 'нет'})", reply_markup=card_payment_admin_keyboard(order_id))
+        except Exception as exc: logger.error("Не удалось уведомить админа: %s", exc)
+    await callback.message.answer("🕐 Запрос отправлен администратору. Ожидайте подтверждения."); await callback.answer()
+
+
+@router.callback_query(lambda callback: bool(callback.data and callback.data.startswith("card_paid:")))
+async def cb_card_paid(callback: CallbackQuery) -> None:
+    if not is_admin(callback.from_user.id): await callback.answer("Нет прав", show_alert=True); return
+    order_id=int(callback.data.split(":",1)[1]); order=await get_order(order_id)
+    if not order: await callback.answer("Заказ не найден", show_alert=True); return
+    await update_order_status(order_id, "paid"); order=await get_order(order_id); await clear_cart(order["user_id"]); await send_order_to_channel(order)
+    try: await bot.send_message(order["user_id"], f"✅ Оплата заказа #{order_id} подтверждена!")
+    except Exception: pass
+    await callback.message.edit_reply_markup(reply_markup=None); await callback.answer("Оплата подтверждена")
+
+
+@router.callback_query(lambda callback: bool(callback.data and callback.data.startswith("card_reject:")))
+async def cb_card_reject(callback: CallbackQuery) -> None:
+    if not is_admin(callback.from_user.id): await callback.answer("Нет прав", show_alert=True); return
+    order_id=int(callback.data.split(":",1)[1]); order=await get_order(order_id)
+    if not order: await callback.answer("Заказ не найден", show_alert=True); return
+    await update_order_status(order_id, "payment_rejected")
+    try: await bot.send_message(order["user_id"], f"❌ Оплата заказа #{order_id} не подтверждена.")
+    except Exception: pass
+    await callback.message.edit_reply_markup(reply_markup=None); await callback.answer("Отклонено")
 
 
 @router.pre_checkout_query()
@@ -429,29 +494,19 @@ async def cmd_add_product(message: Message, state: FSMContext) -> None:
 
 @router.message(AddProduct.name, F.text)
 async def add_product_name(message: Message, state: FSMContext) -> None:
-    if not is_admin(message.from_user.id):
-        await message.answer("У вас нет прав администратора.")
-        return
-    await state.update(name=message.text.strip())
-    await state.set_state(AddProduct.price)
-    await message.answer("Введите цену товара в звёздах Telegram (например, 150):")
+    if not is_admin(message.from_user.id): await message.answer("У вас нет прав администратора."); return
+    await state.update(name=message.text.strip()); await state.set_state(AddProduct.price)
+    await message.answer("Введите две цены через пробел: гривны и Stars. Например: 450 150")
 
 
 @router.message(AddProduct.price, F.text)
 async def add_product_price(message: Message, state: FSMContext) -> None:
-    if not is_admin(message.from_user.id):
-        await message.answer("У вас нет прав администратора.")
-        return
-    try:
-        price = int(message.text.strip())
-    except ValueError:
-        await message.answer("Цена должна быть целым положительным числом. Введите цену ещё раз:")
-        return
-    if price <= 0:
-        await message.answer("Цена должна быть положительной. Введите цену ещё раз:")
-        return
-    await state.update(price=price)
-    await state.set_state(AddProduct.description)
+    if not is_admin(message.from_user.id): await message.answer("У вас нет прав администратора."); return
+    parts=message.text.replace(","," ").split()
+    try: price_uah=int(parts[0]); price_stars=int(parts[1])
+    except (ValueError,IndexError): await message.answer("Введите две цены: например 450 150"); return
+    if price_uah<=0 or price_stars<=0: await message.answer("Обе цены должны быть положительными."); return
+    await state.update(price_uah=price_uah, price_stars=price_stars); await state.set_state(AddProduct.description)
     await message.answer("Введите описание товара (или отправьте /skip):")
 
 
@@ -498,7 +553,7 @@ async def show_add_product_confirmation(message: Message, state: FSMContext) -> 
     text = (
         "Проверьте данные товара:\n\n"
         f"📦 Название: {data['name']}\n"
-        f"💰 Цена: {data['price']} ⭐\n"
+        f"💰 Цена: {data['price_uah']} ₴ / {data['price_stars']} ⭐\n"
         f"📝 Описание: {data.get('description', '—')}\n"
         f"📸 Фото: {'будет' if data.get('photo') else 'нет'}"
     )
@@ -515,7 +570,8 @@ async def cb_add_product_confirm(callback: CallbackQuery, state: FSMContext) -> 
     product_id = await add_product(
         name=data["name"],
         description=data.get("description", ""),
-        price_stars=data["price"],
+        price_stars=data["price_stars"],
+        price_uah=data["price_uah"],
         photo=data.get("photo"),
     )
     await state.clear()
