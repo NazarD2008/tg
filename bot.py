@@ -298,34 +298,34 @@ async def cb_checkout_start(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
 
 
-@router.message(State(Checkout.name), F.text)
+@router.message(Checkout.name, F.text)
 async def checkout_name(message: Message, state: FSMContext) -> None:
     await state.update(name=message.text.strip())
     await state.set_state(Checkout.phone)
     await message.answer("Введите номер телефона для связи:")
 
 
-@router.message(State(Checkout.phone), F.text)
+@router.message(Checkout.phone, F.text)
 async def checkout_phone(message: Message, state: FSMContext) -> None:
     await state.update(phone=message.text.strip())
     await state.set_state(Checkout.address)
     await message.answer("Введите адрес доставки:")
 
 
-@router.message(State(Checkout.address), F.text)
+@router.message(Checkout.address, F.text)
 async def checkout_address(message: Message, state: FSMContext) -> None:
     await state.update(address=message.text.strip())
     await state.set_state(Checkout.comment)
     await message.answer("Комментарий к заказу (или отправьте /skip, если его нет):")
 
 
-@router.message(State(Checkout.comment), Command("skip"))
+@router.message(Checkout.comment, Command("skip"))
 async def checkout_comment_skip(message: Message, state: FSMContext) -> None:
     await state.update(comment="")
     await ask_delivery(message, state)
 
 
-@router.message(State(Checkout.comment), F.text)
+@router.message(Checkout.comment, F.text)
 async def checkout_comment(message: Message, state: FSMContext) -> None:
     await state.update(comment=message.text.strip())
     await ask_delivery(message, state)
@@ -427,7 +427,7 @@ async def cmd_add_product(message: Message, state: FSMContext) -> None:
     await message.answer("Введите название товара:")
 
 
-@router.message(State(AddProduct.name), F.text)
+@router.message(AddProduct.name, F.text)
 async def add_product_name(message: Message, state: FSMContext) -> None:
     if not is_admin(message.from_user.id):
         await message.answer("У вас нет прав администратора.")
@@ -437,7 +437,7 @@ async def add_product_name(message: Message, state: FSMContext) -> None:
     await message.answer("Введите цену товара в звёздах Telegram (например, 150):")
 
 
-@router.message(State(AddProduct.price), F.text)
+@router.message(AddProduct.price, F.text)
 async def add_product_price(message: Message, state: FSMContext) -> None:
     if not is_admin(message.from_user.id):
         await message.answer("У вас нет прав администратора.")
@@ -455,7 +455,7 @@ async def add_product_price(message: Message, state: FSMContext) -> None:
     await message.answer("Введите описание товара (или отправьте /skip):")
 
 
-@router.message(State(AddProduct.description), Command("skip"))
+@router.message(AddProduct.description, Command("skip"))
 async def add_product_description_skip(message: Message, state: FSMContext) -> None:
     if not is_admin(message.from_user.id):
         await message.answer("У вас нет прав администратора.")
@@ -465,7 +465,7 @@ async def add_product_description_skip(message: Message, state: FSMContext) -> N
     await message.answer("Отправьте фото товара (или отправьте /skip):")
 
 
-@router.message(State(AddProduct.description), F.text)
+@router.message(AddProduct.description, F.text)
 async def add_product_description(message: Message, state: FSMContext) -> None:
     if not is_admin(message.from_user.id):
         await message.answer("У вас нет прав администратора.")
@@ -475,7 +475,7 @@ async def add_product_description(message: Message, state: FSMContext) -> None:
     await message.answer("Отправьте фото товара (или отправьте /skip):")
 
 
-@router.message(State(AddProduct.photo), Command("skip"))
+@router.message(AddProduct.photo, Command("skip"))
 async def add_product_photo_skip(message: Message, state: FSMContext) -> None:
     if not is_admin(message.from_user.id):
         await message.answer("У вас нет прав администратора.")
@@ -484,7 +484,7 @@ async def add_product_photo_skip(message: Message, state: FSMContext) -> None:
     await show_add_product_confirmation(message, state)
 
 
-@router.message(State(AddProduct.photo), F.photo)
+@router.message(AddProduct.photo, F.photo)
 async def add_product_photo(message: Message, state: FSMContext) -> None:
     if not is_admin(message.from_user.id):
         await message.answer("У вас нет прав администратора.")
