@@ -11,6 +11,7 @@ async def init_db() -> None:
                 name TEXT NOT NULL,
                 description TEXT NOT NULL DEFAULT '',
                 price_stars INTEGER NOT NULL CHECK (price_stars > 0),
+                price_uah INTEGER CHECK (price_uah IS NULL OR price_uah > 0),
                 photo TEXT,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             );
@@ -31,6 +32,8 @@ async def init_db() -> None:
                 user_id INTEGER NOT NULL,
                 items_json TEXT NOT NULL,
                 total_stars INTEGER NOT NULL CHECK (total_stars > 0),
+                total_uah INTEGER CHECK (total_uah IS NULL OR total_uah > 0),
+                payment_method TEXT,
                 delivery TEXT NOT NULL,
                 delivery_cost INTEGER NOT NULL DEFAULT 0,
                 customer_name TEXT,
@@ -50,6 +53,14 @@ async def init_db() -> None:
             );
             """
         )
+        columns = {row[1] for row in await (await db.execute("PRAGMA table_info(products)")).fetchall()}
+        if "price_uah" not in columns:
+            await db.execute("ALTER TABLE products ADD COLUMN price_uah INTEGER")
+        order_columns = {row[1] for row in await (await db.execute("PRAGMA table_info(orders)")).fetchall()}
+        if "total_uah" not in order_columns:
+            await db.execute("ALTER TABLE orders ADD COLUMN total_uah INTEGER")
+        if "payment_method" not in order_columns:
+            await db.execute("ALTER TABLE orders ADD COLUMN payment_method TEXT")
         await db.commit()
 
 
@@ -84,11 +95,11 @@ async def get_product(product_id: int) -> dict | None:
         return dict(row) if row else None
 
 
-async def add_product(name: str, description: str, price_stars: int, photo: str | None) -> int:
+async def add_product(name: str, description: str, price_stars: int, price_uah: int | None, photo: str | None) -> int:
     async with aiosqlite.connect(DATABASE_PATH) as db:
         cursor = await db.execute(
-            "INSERT INTO products (name, description, price_stars, photo) VALUES (?, ?, ?, ?)",
-            (name, description, price_stars, photo),
+            "INSERT INTO products (name, description, price_stars, price_uah, photo) VALUES (?, ?, ?, ?, ?)",
+            (name, description, price_stars, price_uah, photo),
         )
         await db.commit()
         return cursor.lastrowid
@@ -130,6 +141,7 @@ async def get_cart(user_id: int) -> list[dict]:
                 products.id AS product_id,
                 products.name,
                 products.price_stars,
+                products.price_uah,
                 products.photo
             FROM cart
             JOIN products ON products.id = cart.product_id
@@ -177,6 +189,8 @@ async def create_order(
     user_id: int,
     items_json: str,
     total_stars: int,
+    total_uah: int | None,
+    payment_method: str | None,
     delivery: str,
     delivery_cost: int,
     customer_name: str,
@@ -188,7 +202,7 @@ async def create_order(
         cursor = await db.execute(
             """
             INSERT INTO orders (
-                user_id, items_json, total_stars, delivery, delivery_cost,
+                user_id, items_json, total_stars, total_uah, payment_method, delivery, delivery_cost,
                 customer_name, customer_phone, customer_address,
                 customer_comment, status
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
@@ -197,6 +211,8 @@ async def create_order(
                 user_id,
                 items_json,
                 total_stars,
+                total_uah,
+                payment_method,
                 delivery,
                 delivery_cost,
                 customer_name,
@@ -243,4 +259,10 @@ async def update_channel_message(order_id: int, channel_message_id: int) -> None
 async def add_admin(user_id: int) -> None:
     async with aiosqlite.connect(DATABASE_PATH) as db:
         await db.execute("INSERT OR IGNORE INTO admins (user_id) VALUES (?)", (user_id,))
+        await db.commit()
+
+
+async def update_order_payment_method(order_id: int, payment_method: str) -> None:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute("UPDATE orders SET payment_method = ? WHERE id = ?", (payment_method, order_id))
         await db.commit()
