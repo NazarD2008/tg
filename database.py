@@ -205,7 +205,7 @@ async def create_order(
                 user_id, items_json, total_stars, total_uah, payment_method, delivery, delivery_cost,
                 customer_name, customer_phone, customer_address,
                 customer_comment, status
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 user_id,
