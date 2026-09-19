@@ -311,34 +311,34 @@ async def cb_checkout_start(callback: CallbackQuery, state: FSMContext) -> None:
 
 @router.message(Checkout.name, F.text)
 async def checkout_name(message: Message, state: FSMContext) -> None:
-    await state.update(name=message.text.strip())
+    await state.update_data(name=message.text.strip())
     await state.set_state(Checkout.phone)
     await message.answer("Введите номер телефона для связи:")
 
 
 @router.message(Checkout.phone, F.text)
 async def checkout_phone(message: Message, state: FSMContext) -> None:
-    await state.update(phone=message.text.strip())
+    await state.update_data(phone=message.text.strip())
     await state.set_state(Checkout.address)
     await message.answer("Введите адрес доставки:")
 
 
 @router.message(Checkout.address, F.text)
 async def checkout_address(message: Message, state: FSMContext) -> None:
-    await state.update(address=message.text.strip())
+    await state.update_data(address=message.text.strip())
     await state.set_state(Checkout.comment)
     await message.answer("Комментарий к заказу (или отправьте /skip, если его нет):")
 
 
 @router.message(Checkout.comment, Command("skip"))
 async def checkout_comment_skip(message: Message, state: FSMContext) -> None:
-    await state.update(comment="")
+    await state.update_data(comment="")
     await ask_delivery(message, state)
 
 
 @router.message(Checkout.comment, F.text)
 async def checkout_comment(message: Message, state: FSMContext) -> None:
-    await state.update(comment=message.text.strip())
+    await state.update_data(comment=message.text.strip())
     await ask_delivery(message, state)
 
 
@@ -495,7 +495,7 @@ async def cmd_add_product(message: Message, state: FSMContext) -> None:
 @router.message(AddProduct.name, F.text)
 async def add_product_name(message: Message, state: FSMContext) -> None:
     if not is_admin(message.from_user.id): await message.answer("У вас нет прав администратора."); return
-    await state.update(name=message.text.strip()); await state.set_state(AddProduct.price)
+    await state.update_data(name=message.text.strip()); await state.set_state(AddProduct.price)
     await message.answer("Введите две цены через пробел: гривны и Stars. Например: 450 150")
 
 
@@ -506,7 +506,7 @@ async def add_product_price(message: Message, state: FSMContext) -> None:
     try: price_uah=int(parts[0]); price_stars=int(parts[1])
     except (ValueError,IndexError): await message.answer("Введите две цены: например 450 150"); return
     if price_uah<=0 or price_stars<=0: await message.answer("Обе цены должны быть положительными."); return
-    await state.update(price_uah=price_uah, price_stars=price_stars); await state.set_state(AddProduct.description)
+    await state.update_data(price_uah=price_uah, price_stars=price_stars); await state.set_state(AddProduct.description)
     await message.answer("Введите описание товара (или отправьте /skip):")
 
 
@@ -515,7 +515,7 @@ async def add_product_description_skip(message: Message, state: FSMContext) -> N
     if not is_admin(message.from_user.id):
         await message.answer("У вас нет прав администратора.")
         return
-    await state.update(description="")
+    await state.update_data(description="")
     await state.set_state(AddProduct.photo)
     await message.answer("Отправьте фото товара (или отправьте /skip):")
 
@@ -525,7 +525,7 @@ async def add_product_description(message: Message, state: FSMContext) -> None:
     if not is_admin(message.from_user.id):
         await message.answer("У вас нет прав администратора.")
         return
-    await state.update(description=message.text.strip())
+    await state.update_data(description=message.text.strip())
     await state.set_state(AddProduct.photo)
     await message.answer("Отправьте фото товара (или отправьте /skip):")
 
@@ -535,7 +535,7 @@ async def add_product_photo_skip(message: Message, state: FSMContext) -> None:
     if not is_admin(message.from_user.id):
         await message.answer("У вас нет прав администратора.")
         return
-    await state.update(photo=None)
+    await state.update_data(photo=None)
     await show_add_product_confirmation(message, state)
 
 
@@ -544,7 +544,7 @@ async def add_product_photo(message: Message, state: FSMContext) -> None:
     if not is_admin(message.from_user.id):
         await message.answer("У вас нет прав администратора.")
         return
-    await state.update(photo=message.photo[-1].file_id)
+    await state.update_data(photo=message.photo[-1].file_id)
     await show_add_product_confirmation(message, state)
 
 
